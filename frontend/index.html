@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>File Management</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        body {
+            padding-top: 20px;
+        }
+        .container {
+            max-width: 600px;
+        }
+        .auth-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px; /* Add some space between buttons */
+            margin-bottom: 20px;
+        }
+        .list-group-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .file-link {
+            flex-grow: 1;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1>File Management</h1>
+            <div class="auth-buttons">
+                <button type="button" class="btn btn-primary" data-toggle="modal" data-target="#signupModal">Signup</button>
+                <button type="button" class="btn btn-success" data-toggle="modal" data-target="#loginModal">Login</button>
+                <button type="button" id="logout-button" class="btn btn-danger" style="display: none;">Logout</button>
+            </div>
+        </div>
+
+        <!-- Signup Modal -->
+        <div class="modal fade" id="signupModal" tabindex="-1" role="dialog" aria-labelledby="signupModalLabel" aria-hidden="true">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="signupModalLabel">Signup</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="signup-form">
+                            <div class="form-group">
+                                <input type="text" id="signup-username" class="form-control" placeholder="Username" required />
+                            </div>
+                            <div class="form-group">
+                                <input type="password" id="signup-password" class="form-control" placeholder="Password" required />
+                            </div>
+                            <button type="submit" class="btn btn-primary">Signup</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Login Modal -->
+        <div class="modal fade" id="loginModal" tabindex="-1" role="dialog" aria-labelledby="loginModalLabel" aria-hidden="true">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="loginModalLabel">Login</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="login-form">
+                            <div class="form-group">
+                                <input type="text" id="login-username" class="form-control" placeholder="Username" required />
+                            </div>
+                            <div class="form-group">
+                                <input type="password" id="login-password" class="form-control" placeholder="Password" required />
+                            </div>
+                            <button type="submit" class="btn btn-success">Login</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    
+            <!-- File Upload Form -->
+            <h2>Upload File</h2>
+            <form id="upload-form" class="mb-3" enctype="multipart/form-data">
+                <div class="form-group">
+                    <input type="file" id="file-input" name="file" class="form-control-file" required />
+                </div>
+                <button type="submit" class="btn btn-info">Upload</button>
+            </form>
+    
+            <!-- File List -->
+            <h2>Uploaded Files</h2>
+            <ul id="file-list" class="list-group"></ul>
+        </div>
+
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.9.3/dist/umd/popper.min.js"></script>        
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script>
+        let token = null; // JWT token
+
+        // Logout button 
+        document.getElementById('logout-button').addEventListener('click', function() {
+            token = null; // Clear the stored token
+            clearFilesList(); // Clear the uploaded files list
+            document.getElementById('logout-button').style.display = 'none'; 
+            document.querySelector('.btn-primary').style.display = 'inline-block'; 
+            document.querySelector('.btn-success').style.display = 'inline-block'; 
+        });
+
+        //signup
+        document.getElementById('signup-form').addEventListener('submit', function(event) {
+            event.preventDefault();
+            const username = document.getElementById('signup-username').value;
+            const password = document.getElementById('signup-password').value;
+        
+            const signupUrl = 'http://localhost:3030/register';
+        
+            fetch(signupUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(errorInfo => Promise.reject(errorInfo)); 
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Signup Success:', data);
+                // Automatically log the user in after successful signup
+                return fetch('http://localhost:3030/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+            })
+            .then(response => response.json())
+            .then(data => {
+                token = data.token; // Store the JWT token
+                handleSuccessfulLogin(username); // Handle successful login
+                loadFiles(); // Load the user's files after login
+            })
+            .catch((error) => {
+                console.error('Signup or Login Error:', error);
+                displayErrorMessage(error.message || 'Username Already Exists, Try a differnet one'); // Display error message to the user
+            });
+        });
+        
+
+
+        // Handle Login
+        document.getElementById('login-form').addEventListener('submit', function(event) {
+            event.preventDefault();
+            const username = document.getElementById('login-username').value;
+            const password = document.getElementById('login-password').value;
+
+            const loginUrl = 'http://localhost:3030/login';
+
+            fetch(loginUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Login failed: Incorrect username or password.');
+                }
+                return response.json();
+            })
+            .then(data => {
+                token = data.token; // Store the JWT token
+                handleSuccessfulLogin(username); // Handle successful login
+                loadFiles(); // Load the user's files after login
+            })
+            .catch((error) => {
+                console.error('Login Error:', error);
+                displayErrorMessage(error.message); // Display error message to the user
+            });
+        });
+
+        // Handle File Upload
+        document.getElementById('upload-form').addEventListener('submit', function(event) {
+            event.preventDefault();
+            if (!token) {
+                alert('Please login first.');
+                return;
+            }
+            const fileInput = document.getElementById('file-input');
+            const file = fileInput.files[0];
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const uploadUrl = 'http://localhost:3030/upload';
+
+            fetch(uploadUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Upload Success:', data);
+                loadFiles(); // Refresh the file list after upload
+            })
+            .catch((error) => {
+                console.error('Upload Error:', error);
+            });
+        });
+
+        // Load and display the user's files
+        function loadFiles() {
+            if (!token) {
+                return;
+            }
+        
+            const listFilesUrl = 'http://localhost:3030/list_files';
+        
+            fetch(listFilesUrl, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            })
+            .then(response => response.json())
+            .then(files => {
+                const fileList = document.getElementById('file-list');
+                fileList.innerHTML = '';
+                files.forEach(file => {
+                    const listItem = document.createElement('li');
+                    listItem.className = 'list-group-item';
+                    
+                    const fileLink = document.createElement('a');
+                    fileLink.className = 'file-link';
+                    fileLink.href = '#'; 
+                    fileLink.textContent = file.name;
+                    fileLink.addEventListener('click', function(event) {
+                        event.preventDefault(); 
+                        downloadFile(file.name); // Call the download function
+                    });
+        
+                    listItem.appendChild(fileLink);
+                    fileList.appendChild(listItem);
+                });
+            })
+            .catch((error) => {
+                console.error('Error loading files:', error);
+            });
+        }
+
+
+        // Function to handle file downloads
+        function downloadFile(filename) {
+            const downloadUrl = `http://localhost:3030/files/${encodeURIComponent(filename)}`;
+
+            fetch(downloadUrl, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}` 
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.blob(); 
+            })
+            .then(blob => {
+                const downloadLink = document.createElement('a');
+                downloadLink.href = URL.createObjectURL(blob);
+                downloadLink.download = filename; 
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink); 
+            })
+            .catch((error) => {
+                console.error('Download Error:', error);
+            });
+        }
+
+
+        // Function to show a welcome message
+        function showWelcomeMessage(username) {
+            // Find or create a container for welcome messages
+            let welcomeContainer = document.getElementById('welcome-container');
+            if (!welcomeContainer) {
+                welcomeContainer = document.createElement('div');
+                welcomeContainer.id = 'welcome-container';
+                document.body.appendChild(welcomeContainer);
+            }
+        
+            // Create the welcome message element
+            const welcomeMessage = document.createElement('div');
+            welcomeMessage.classList.add('alert', 'alert-success');
+            welcomeMessage.textContent = `Welcome, ${username}!`;
+        
+            // Append the welcome message to the container
+            welcomeContainer.appendChild(welcomeMessage);
+        
+            // Remove the welcome message after some time
+            setTimeout(() => {
+                welcomeMessage.remove();
+            }, 2000); 
+        }
+        
+        function clearFilesList() {
+            const fileList = document.getElementById('file-list');
+            fileList.innerHTML = ''; // Clear the list
+        }
+
+        // After successful Signup/login, hide the signup and login buttons and show the logout button
+        function handleSuccessfulLogin(username) {
+            showWelcomeMessage(username); // Show welcome message
+            document.getElementById('logout-button').style.display = 'inline-block'; 
+            document.querySelector('.btn-primary').style.display = 'none'; 
+            document.querySelector('.btn-success').style.display = 'none'; 
+            $('#signupModal').modal('hide'); 
+            $('#loginModal').modal('hide');  
+        }
+        
+        // Function to display error messages to the user
+        function displayErrorMessage(message) {
+            let errorContainer = document.getElementById('error-container');
+            if (!errorContainer) {
+                errorContainer = document.createElement('div');
+                errorContainer.id = 'error-container';
+                document.body.appendChild(errorContainer);
+            }
+    
+            const errorMessage = document.createElement('div');
+            errorMessage.classList.add('alert', 'alert-danger');
+            errorMessage.textContent = message;
+        
+            errorContainer.appendChild(errorMessage);
+        
+            // Remove the error message after some time
+            setTimeout(() => {
+                errorMessage.remove();
+            }, 2000); 
+        }
+
+    </script>
+</body>
+</html>

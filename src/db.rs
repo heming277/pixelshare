@@ -26,6 +26,7 @@ pub struct User {
 pub struct FileRecord {
     pub file_name: String,
     pub upload_date: Option<chrono::NaiveDateTime>,
+    pub unique_id: String, 
 }
 
 impl User {
@@ -63,7 +64,7 @@ impl User {
     pub async fn get_user_files(user_id: i64, pool: &SqlitePool) -> Result<Vec<FileRecord>, sqlx::Error> {
         let files = sqlx::query_as!(
             FileRecord,
-            "SELECT file_name, upload_date FROM files WHERE user_id = ?",
+            "SELECT file_name, upload_date, unique_id FROM files WHERE user_id = ?",
             user_id
         )
         .fetch_all(pool)

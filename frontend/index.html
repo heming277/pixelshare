@@ -5,12 +5,25 @@
     <title>File Management</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <style>
-        body {
-            padding-top: 20px;
+         body {
+        padding-top: 20px;
+        background-color: #f4f7f6; /* Soft background color */
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         .container {
-            max-width: 600px;
+            max-width: 800px; /* Adjusted container width for better spacing */
+            background-color: #ffffff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); /* Subtle shadow for depth */
         }
+        .section-title {
+            color: #333; /* Darker font color for contrast */
+            margin-bottom: 20px;
+        }
+
+
+        
         .auth-buttons {
             display: flex;
             justify-content: flex-end;
@@ -18,13 +31,54 @@
             margin-bottom: 20px;
         }
         .list-group-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            background-color: #e9ecef; /* Light background for list items */
+            border: 1px solid #dee2e6; /* Border to distinguish items */
+            border-radius: 5px; /* Rounded corners for modern look */
+            margin-bottom: 10px; /* Space between list items */
         }
         .file-link {
             flex-grow: 1;
             margin-right: 10px;
+        }
+
+        #username {
+            color: #007bff; /* Bootstrap primary color for emphasis */
+        }
+
+        #welcome-container {
+            position: fixed; /* Fixed position at the top */
+            top: 0;
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: center; /* Center the message horizontally */
+            z-index: 1050; /* Ensure it's above other content */
+        }
+        .welcome-message {
+            margin-top: 20px; /* Add some space at the top */
+            border-radius: 5px; /* Rounded corners for a modern look */
+            padding: 10px 20px; /* Padding for the message */
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); /* Subtle shadow for depth */
+            font-weight: bold; /* Make the text stand out */
+        }
+        #error-container {
+            position: fixed; /* Fixed position */
+            top: 10%; /* Position from the top */
+            left: 0;
+            width: 100%;
+            display: flex;
+            justify-content: center; /* Center the message horizontally */
+            z-index: 2000; /* Higher than the modal */
+        }
+        .error-message {
+            margin-top: 20px;
+            border-radius: 5px;
+            padding: 10px 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            font-weight: bold;
+            color: #721c24; /* Bootstrap alert-danger text color */
+            background-color: #f8d7da; /* Bootstrap alert-danger background color */
+            border-color: #f5c6cb; /* Bootstrap alert-danger border color */
         }
     </style>
 </head>
@@ -99,24 +153,74 @@
             </form>
     
             <!-- File List -->
-            <h2>Uploaded Files</h2>
-            <ul id="file-list" class="list-group"></ul>
+            <div id="file-section" class="file-section">
+                <h2 id="file-list-title" class="section-title">Uploaded Files for <span id="username">Username</span></h2>
+                <ul id="file-list" class="list-group"></ul>
+            </div>
         </div>
 
+
+        <!-- Generic Modal Structure -->
+        <div class="modal fade" id="genericModal" tabindex="-1" role="dialog" aria-labelledby="genericModalLabel" aria-hidden="true">
+            <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                <h5 class="modal-title" id="genericModalLabel">Modal title</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+                </div>
+                <div class="modal-body">
+                Modal body text goes here.
+                </div>
+                <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="modal-primary-action">OK</button>
+                </div>
+            </div>
+            </div>
+        </div>
 
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/popper.js@1.9.3/dist/umd/popper.min.js"></script>        
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
     <script>
-        let token = null; // JWT token
 
+
+        let token = null; // JWT token
+        document.addEventListener('DOMContentLoaded', function() {
+        // Example: Assuming the username is stored in localStorage
+            const username = localStorage.getItem('username'); // Adjust based on your actual implementation
+            if (username) {
+                document.getElementById('username').textContent = `${username}`;
+            }
+            else{
+                document.getElementById('file-list-title').innerHTML = 'Uploaded Files';
+            }
+        });
+
+    
+        document.addEventListener('DOMContentLoaded', function() {
+            let storedToken = localStorage.getItem('token');
+            if (storedToken) {
+                token = storedToken; // Use the stored token
+                handleLoggedin();
+                loadFiles(); // Load the user's files after login
+            }
+            else{
+                document.getElementById('file-list-title').innerHTML = 'Uploaded Files';
+            }
+        });
         // Logout button 
         document.getElementById('logout-button').addEventListener('click', function() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('username');
             token = null; // Clear the stored token
             clearFilesList(); // Clear the uploaded files list
             document.getElementById('logout-button').style.display = 'none'; 
             document.querySelector('.btn-primary').style.display = 'inline-block'; 
             document.querySelector('.btn-success').style.display = 'inline-block'; 
+            document.getElementById('file-list-title').innerHTML = 'Uploaded Files';
         });
 
         //signup
@@ -154,6 +258,8 @@
             .then(response => response.json())
             .then(data => {
                 token = data.token; // Store the JWT token
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('username', username);
                 handleSuccessfulLogin(username); // Handle successful login
                 loadFiles(); // Load the user's files after login
             })
@@ -188,6 +294,8 @@
             })
             .then(data => {
                 token = data.token; // Store the JWT token
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('username', username);
                 handleSuccessfulLogin(username); // Handle successful login
                 loadFiles(); // Load the user's files after login
             })
@@ -201,7 +309,13 @@
         document.getElementById('upload-form').addEventListener('submit', function(event) {
             event.preventDefault();
             if (!token) {
-                alert('Please login first.');
+                $('#genericModalLabel').text('Login Required');
+                $('.modal-body').text('Please login first to upload files.');
+                $('#modal-primary-action').hide(); // Hide the primary action button if not needed
+                $('#genericModal').modal('show');
+                $('#genericModal').on('hidden.bs.modal', function () {
+                    window.location.reload();
+                });
                 return;
             }
             const fileInput = document.getElementById('file-input');
@@ -223,6 +337,7 @@
             .then(data => {
                 console.log('Upload Success:', data);
                 loadFiles(); // Refresh the file list after upload
+                window.location.reload();
             })
             .catch((error) => {
                 console.error('Upload Error:', error);
@@ -234,9 +349,9 @@
             if (!token) {
                 return;
             }
-        
+
             const listFilesUrl = 'http://localhost:3030/list_files';
-        
+
             fetch(listFilesUrl, {
                 method: 'GET',
                 headers: {
@@ -249,24 +364,99 @@
                 fileList.innerHTML = '';
                 files.forEach(file => {
                     const listItem = document.createElement('li');
-                    listItem.className = 'list-group-item';
+                    listItem.className = 'list-group-item d-flex justify-content-between align-items-center';
                     
-                    const fileLink = document.createElement('a');
-                    fileLink.className = 'file-link';
-                    fileLink.href = '#'; 
-                    fileLink.textContent = file.name;
-                    fileLink.addEventListener('click', function(event) {
+                    const fileText = document.createElement('span');
+                    fileText.textContent = file.name;
+                    
+                    const buttonsContainer = document.createElement('div');
+
+                    // Download button
+                    const downloadButton = document.createElement('button');
+                    downloadButton.className = 'btn btn-primary btn-sm mr-2';
+                    downloadButton.textContent = 'Download';
+                    downloadButton.addEventListener('click', function(event) {
                         event.preventDefault(); 
                         downloadFile(file.name); // Call the download function
                     });
-        
-                    listItem.appendChild(fileLink);
+
+                    // Delete button
+                    const deleteButton = document.createElement('button');
+                    deleteButton.className = 'btn btn-danger btn-sm mr-2';
+                    deleteButton.textContent = 'Delete';
+                    deleteButton.addEventListener('click', function(event) {
+                        event.preventDefault(); 
+                        deleteFile(file.name, file.unique_id); // Call the delete function
+                    });
+
+                    // Copy Link button
+                    const copyLinkButton = document.createElement('button');
+                    copyLinkButton.className = 'btn btn-info btn-sm';
+                    copyLinkButton.textContent = 'Share Download Link';
+                    copyLinkButton.addEventListener('click', function(event) {
+                        event.preventDefault();
+                        const shareableLink = `http://localhost:3030/share/${file.unique_id}`;
+                        navigator.clipboard.writeText(shareableLink).then(() => {
+                            $('#genericModalLabel').text('Link Copied');
+                            $('.modal-body').text('The download link has been copied to your clipboard.');
+                            $('#modal-primary-action').hide(); // Hide if no action needed
+                            $('#genericModal').modal('show');
+                        }, (err) => {
+                            console.error('Could not copy link: ', err);
+                            $('#genericModalLabel').text('Error');
+                            $('.modal-body').text('Could not copy the link. Please try again.');
+                            $('#modal-primary-action').hide();
+                            $('#genericModal').modal('show');
+                        });
+                    });
+
+                    buttonsContainer.appendChild(downloadButton);
+                    buttonsContainer.appendChild(deleteButton);
+                    buttonsContainer.appendChild(copyLinkButton);
+
+                    listItem.appendChild(fileText);
+                    listItem.appendChild(buttonsContainer);
                     fileList.appendChild(listItem);
                 });
             })
             .catch((error) => {
                 console.error('Error loading files:', error);
             });
+        }
+
+        // handle delete 
+        function deleteFile(fileName, uniqueId) {
+            $('#genericModalLabel').text('Confirm Deletion');
+            $('.modal-body').text(`Are you sure you want to delete ${fileName}?`);
+            $('#modal-primary-action').show().text('Delete').off('click').on('click', function() {
+                // Proceed with deletion
+                const deleteFileUrl = `http://localhost:3030/delete?unique_id=${encodeURIComponent(uniqueId)}&filename=${encodeURIComponent(fileName)}`;
+                fetch(deleteFileUrl, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to delete the file.');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('File deleted successfully:', data);
+                    loadFiles(); // Refresh the file list after deletion
+                    $('#genericModal').modal('hide');
+                })
+                .catch((error) => {
+                    console.error('Delete Error:', error);
+                    $('#genericModalLabel').text('Error');
+                    $('.modal-body').text('Failed to delete the file.');
+                    $('#modal-primary-action').hide();
+                    $('#genericModal').modal('show');
+                });
+            });
+            $('#genericModal').modal('show');
         }
 
 
@@ -307,23 +497,24 @@
             if (!welcomeContainer) {
                 welcomeContainer = document.createElement('div');
                 welcomeContainer.id = 'welcome-container';
-                document.body.appendChild(welcomeContainer);
+                document.body.insertBefore(welcomeContainer, document.body.firstChild); // Insert at the top of the body
             }
-        
+
             // Create the welcome message element
             const welcomeMessage = document.createElement('div');
-            welcomeMessage.classList.add('alert', 'alert-success');
+            welcomeMessage.classList.add('alert', 'alert-success', 'welcome-message');
             welcomeMessage.textContent = `Welcome, ${username}!`;
-        
+
             // Append the welcome message to the container
             welcomeContainer.appendChild(welcomeMessage);
-        
+
             // Remove the welcome message after some time
             setTimeout(() => {
                 welcomeMessage.remove();
             }, 2000); 
         }
-        
+
+
         function clearFilesList() {
             const fileList = document.getElementById('file-list');
             fileList.innerHTML = ''; // Clear the list
@@ -335,6 +526,16 @@
             document.getElementById('logout-button').style.display = 'inline-block'; 
             document.querySelector('.btn-primary').style.display = 'none'; 
             document.querySelector('.btn-success').style.display = 'none'; 
+            document.getElementById('file-list-title').innerHTML = `Uploaded Files for <span id="username">${username}</span>`;
+            $('#signupModal').modal('hide'); 
+            $('#loginModal').modal('hide');  
+        }
+
+        function handleLoggedin() {
+        
+            document.getElementById('logout-button').style.display = 'inline-block'; 
+            document.querySelector('.btn-primary').style.display = 'none'; 
+            document.querySelector('.btn-success').style.display = 'none';
             $('#signupModal').modal('hide'); 
             $('#loginModal').modal('hide');  
         }
@@ -345,15 +546,15 @@
             if (!errorContainer) {
                 errorContainer = document.createElement('div');
                 errorContainer.id = 'error-container';
-                document.body.appendChild(errorContainer);
+                document.body.appendChild(errorContainer); // Consider changing this if you want a different positioning strategy
             }
-    
+
             const errorMessage = document.createElement('div');
-            errorMessage.classList.add('alert', 'alert-danger');
+            errorMessage.classList.add('alert', 'alert-danger', 'error-message');
             errorMessage.textContent = message;
-        
+
             errorContainer.appendChild(errorMessage);
-        
+
             // Remove the error message after some time
             setTimeout(() => {
                 errorMessage.remove();

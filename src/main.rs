@@ -20,8 +20,9 @@ use warp::reject::reject;
 use tokio::fs;
 use mime_guess::from_path;
 use warp::hyper::Body;
-
-
+//use image::{DynamicImage, GenericImageView, ImageFormat, imageops::FilterType};
+use uuid::Uuid;
+use percent_encoding::percent_decode_str;
 //src/main.rs
 
 
@@ -32,10 +33,13 @@ struct ErrorResponse {
     message: String,
 }
 
+
+
 #[derive(Serialize)]
 struct UploadResponse {
     message: String,
     file_name: String, 
+    unique_id: String,
 }
 
 // Define a custom error type for upload errors
@@ -55,6 +59,12 @@ struct RegisterRequest {
 }
 
 #[derive(Deserialize)]
+struct DeleteFileQuery {
+    unique_id: String,
+    filename: String,
+}
+
+#[derive(Deserialize)]
 struct LoginRequest {
     username: String,
     password: String,
@@ -69,6 +79,8 @@ struct Claims {
 fn with_db(pool: SqlitePool) -> impl Filter<Extract = (SqlitePool,), Error = std::convert::Infallible> + Clone {
     warp::any().map(move || pool.clone())
 }
+
+
 
 
 
@@ -135,6 +147,9 @@ fn with_auth(secret: Vec<u8>) -> impl Filter<Extract = (String,), Error = Reject
 }
 
 
+
+
+
 async fn register_handler(body: RegisterRequest, pool: SqlitePool) -> Result<impl Reply, Rejection> {
     match User::create(&body.username, &body.password, &pool).await {
         Ok(_) => Ok(warp::reply::with_status(
@@ -186,7 +201,7 @@ async fn sign_out_handler() -> Result<impl Reply, Rejection> {
     ))
 }
 
-async fn save_file(user_id: Option<i64>, field: Part, pool: &SqlitePool) -> Result<String, Rejection> {
+async fn save_file(user_id: Option<i64>, field: Part, pool: &SqlitePool) -> Result<(String, String), Rejection> {
     let file_name = field.filename().map(|name| sanitize(name.to_string())).unwrap_or_else(|| "file".to_string());
     let file_path = PathBuf::from(format!("uploads/{}", file_name));
 
@@ -206,6 +221,7 @@ async fn save_file(user_id: Option<i64>, field: Part, pool: &SqlitePool) -> Resu
         }
     };
 
+  
     let mut stream = field.stream();
     while let Some(chunk) = stream.next().await {
         let data = match chunk {
@@ -224,23 +240,26 @@ async fn save_file(user_id: Option<i64>, field: Part, pool: &SqlitePool) -> Resu
     // Log successful file save
     eprintln!("File saved successfully: {:?}", file_path);
 
+    let unique_id = Uuid::new_v4().to_string();
+
     // Insert file metadata into the database only if user_id is present
     if let Some(uid) = user_id {
-        match sqlx::query("INSERT INTO files (user_id, file_name) VALUES (?, ?)")
+        match sqlx::query("INSERT INTO files (user_id, file_name, unique_id) VALUES (?, ?, ?)")
             .bind(uid)
             .bind(&file_name)
+            .bind(&unique_id) // Bind the unique_id here
             .execute(pool)
             .await
         {
             Ok(_) => eprintln!("File metadata inserted into database."),
             Err(e) => {
-                eprintln!("Failed to insert file metadata: {:?}", e); // Log the error
-                return Err(warp::reject::custom(InvalidJwt)); // Use a more appropriate error here
+                eprintln!("Failed to insert file metadata: {:?}", e);
+                return Err(warp::reject::custom(InvalidJwt)); // Consider using a more specific error
             }
         }
     }
 
-    Ok(file_name)
+    Ok((file_name, unique_id))
 }
 
 
@@ -267,7 +286,8 @@ async fn upload_handler(form: FormData, username: Option<String>, pool: SqlitePo
     };
 
     // Save the file and get the file name
-    let file_name = save_file(user_id, part, &pool).await?;
+    let (file_name, unique_id) = save_file(user_id, part, &pool).await?;
+
 
     // Determine the success message
     let message = if user_id.is_some() {
@@ -277,16 +297,40 @@ async fn upload_handler(form: FormData, username: Option<String>, pool: SqlitePo
     };
 
     // Create the response object with the file name
-    let response = UploadResponse { message, file_name };
-
+    let response = UploadResponse { message, file_name, unique_id }; 
     // Return a JSON response with status code 200 OK
     Ok(warp::reply::with_status(warp::reply::json(&response), StatusCode::OK))
 }
 
+async fn share_file_handler(unique_id: String, pool: SqlitePool) -> Result<impl Reply, Rejection> {
+    let file_data = sqlx::query!("SELECT file_name FROM files WHERE unique_id = ?", unique_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|_| warp::reject::custom(InvalidJwt))?; // Adjust error handling as needed
+
+    let file_path = PathBuf::from(format!("uploads/{}", file_data.file_name));
+    let mime_type = from_path(&file_path).first_or_octet_stream();
+
+    let mut file = File::open(file_path).await.map_err(|_| warp::reject::custom(InvalidJwt))?;
+    let mut contents = vec![];
+    file.read_to_end(&mut contents).await.map_err(|_| warp::reject::custom(InvalidJwt))?;
+
+    Ok(Response::builder()
+        .header("Content-Type", mime_type.to_string())
+        .body(Body::from(contents)))
+}
 
 
 async fn download_handler(_username: String, filename: String) -> Result<impl Reply, Rejection> {
-    let file_path = PathBuf::from(format!("uploads/{}", sanitize(filename)));
+    
+    
+    let decoded_filename = percent_decode_str(&filename)
+        .decode_utf8_lossy()
+        .into_owned();
+
+    let sanitized_filename = sanitize(decoded_filename);
+        
+    let file_path = PathBuf::from(format!("uploads/{}", sanitized_filename));
     let mime_type = from_path(&file_path).first_or_octet_stream(); // Guess MIME type
 
     let mut file = File::open(file_path).await.map_err(|_| warp::reject::custom(InvalidJwt))?;
@@ -303,9 +347,13 @@ async fn list_files_handler(username: String, pool: SqlitePool) -> Result<impl R
     let user = User::find_by_username(&username, &pool).await.map_err(|_| warp::reject::custom(InvalidJwt))?;
     let file_records = User::get_user_files(user.id, &pool).await.map_err(|_| warp::reject::custom(InvalidJwt))?;
 
-    // Transform Vec<FileRecord> into Vec<serde_json::Value>
+    // Ensure that your FileRecord struct or the equivalent has a `unique_id` field
+    // Transform Vec<FileRecord> into Vec<serde_json::Value>, including the unique_id
     let files: Vec<_> = file_records.into_iter().map(|record| {
-        json!({ "name": record.file_name })
+        json!({
+            "name": record.file_name,
+            "unique_id": record.unique_id // Include the unique_id in the response
+        })
     }).collect();
 
     Ok(warp::reply::json(&files))
@@ -332,9 +380,82 @@ async fn handle_rejection(err: Rejection) -> Result<impl Reply, std::convert::In
 }
 
 
+fn with_user_id(pool: SqlitePool, secret: Vec<u8>) -> impl Filter<Extract = (i64,), Error = Rejection> + Clone {
+    warp::header::<String>("authorization")
+        .and_then(move |value: String| {
+            let secret_cloned = secret.clone();
+            let pool_cloned = pool.clone();
+            async move {
+                let token = value.strip_prefix("Bearer ").ok_or_else(|| warp::reject::custom(InvalidJwt))?;
+                let username = validate_jwt(token, &secret_cloned).map_err(|_| warp::reject::custom(InvalidJwt))?;
+                
+                // Fetch user ID from the database using the username
+                let user_id = User::find_by_username(&username, &pool_cloned).await
+                    .map_err(|_| warp::reject::custom(InvalidJwt))?
+                    .id;
+                
+                Ok::<_, warp::Rejection>(user_id)
+            }
+        })
+}
+
+
+async fn delete_file_handler(query_params: DeleteFileQuery, user_id: i64, pool: SqlitePool) -> Result<impl warp::Reply, warp::Rejection> {
+    let unique_id = &query_params.unique_id;
+    let filename = &query_params.filename;
+
+    log::info!("Attempting to delete file with unique_id: {} for user_id: {}", unique_id, user_id);
+
+    // Decode and sanitize the filename to ensure it's safe for use in file paths
+    let decoded_filename = percent_decode_str(filename)
+        .decode_utf8_lossy()
+        .into_owned();
+    let sanitized_filename = sanitize(decoded_filename);
+
+    // Directly proceed to delete the file record from the SQLite database for the specific unique_id and user_id
+    let num_deleted = sqlx::query!(
+        "DELETE FROM files WHERE unique_id = ? AND user_id = ?",
+        unique_id,
+        user_id
+    )
+    .execute(&pool)
+    .await
+    .map_err(|_| warp::reject::custom(UploadError))?
+    .rows_affected();
+
+    // Check if a file was actually deleted
+    if num_deleted == 0 {
+        // No file was deleted, possibly because it didn't exist for this user
+        return Err(warp::reject::custom(InvalidJwt)); // Consider using a more appropriate error or custom rejection
+    }
+
+    // Check if there are no more files with the same name in the database
+    let files_with_same_name = sqlx::query!(
+        "SELECT COUNT(*) as count FROM files WHERE file_name = ?",
+        sanitized_filename
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(|_| warp::reject::custom(UploadError))?
+    .count;
+
+    if files_with_same_name == 0 {
+        // If the file record was successfully deleted and no other files with the same name exist, proceed to delete the file from the filesystem
+        let file_path = PathBuf::from(format!("uploads/{}", sanitized_filename));
+        tokio::fs::remove_file(&file_path).await.map_err(|_| warp::reject::custom(UploadError))?;
+    }
+
+    Ok(warp::reply::with_status(
+        warp::reply::json(&json!({"message": "File deleted successfully"})),
+        StatusCode::OK,
+    ))
+}
+
+
 #[tokio::main]
 async fn main() {
     dotenv().ok();
+    env_logger::init(); 
     let secret_key = env::var("SECRET_KEY").expect("SECRET_KEY must be set");
 
     let secret_key_for_filter = secret_key.clone();
@@ -353,8 +474,8 @@ async fn main() {
     let cors = warp::cors()
         .allow_any_origin()
         .allow_headers(vec!["Content-Type", "User-Agent", "Authorization"])
-        .allow_methods(vec![Method::GET, Method::POST, Method::OPTIONS, Method::PUT]) 
-        .build(); 
+        .allow_methods(vec![Method::GET, Method::POST, Method::OPTIONS, Method::PUT, Method::DELETE]) // Include DELETE here
+        .build();
 
     let register_route = warp::path("register")
         .and(warp::post())
@@ -388,7 +509,19 @@ async fn main() {
         .and(with_db(pool.clone()))
         .and_then(list_files_handler);
 
+    let delete_route = warp::path("delete")
+        .and(warp::delete())
+        .and(warp::query::<DeleteFileQuery>()) // Using the struct here
+        .and(with_user_id(pool.clone(), secret_key_bytes.clone()))
+        .and(with_db(pool.clone()))
+        .and_then(delete_file_handler);
 
+
+    let share_route = warp::path("share")
+        .and(warp::get())
+        .and(warp::path::param::<String>())
+        .and(with_db(pool.clone()))
+        .and_then(share_file_handler);
     
     // Serve static files from the frontend directory
     let static_files = warp::fs::dir("frontend");
@@ -405,7 +538,9 @@ async fn main() {
     .or(upload_route)
     .or(download_route)
     .or(list_files_route)
+    .or(delete_route)
     .or(sign_out_route)
+    .or(share_route)
     .or(static_files)
     .recover(handle_rejection) 
     .with(cors);

@@ -347,7 +347,7 @@ async fn list_files_handler(username: String, pool: SqlitePool) -> Result<impl R
     let user = User::find_by_username(&username, &pool).await.map_err(|_| warp::reject::custom(InvalidJwt))?;
     let file_records = User::get_user_files(user.id, &pool).await.map_err(|_| warp::reject::custom(InvalidJwt))?;
 
-    // Ensure that your FileRecord struct or the equivalent has a `unique_id` field
+    
     // Transform Vec<FileRecord> into Vec<serde_json::Value>, including the unique_id
     let files: Vec<_> = file_records.into_iter().map(|record| {
         json!({
@@ -469,7 +469,7 @@ async fn main() {
         .and(warp::post())
         .and_then(sign_out_handler);
     
-    let pool = SqlitePool::connect("sqlite:mydb.sqlite").await.expect("Failed to connect to the database");
+    let pool = SqlitePool::connect(&env::var("DATABASE_URL").expect("DATABASE_URL must be set")).await.expect("Failed to connect to the database");
 
     let cors = warp::cors()
         .allow_any_origin()
@@ -546,5 +546,5 @@ async fn main() {
     .with(cors);
 
     // Start the Warp server
-    warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
+    warp::serve(routes).run(([0, 0, 0, 0], 3030)).await;
 }

@@ -189,8 +189,8 @@
 
         let token = null; // JWT token
         document.addEventListener('DOMContentLoaded', function() {
-        // Example: Assuming the username is stored in localStorage
-            const username = localStorage.getItem('username'); // Adjust based on your actual implementation
+     
+            const username = localStorage.getItem('username'); 
             if (username) {
                 document.getElementById('username').textContent = `${username}`;
             }
@@ -221,6 +221,7 @@
             document.querySelector('.btn-primary').style.display = 'inline-block'; 
             document.querySelector('.btn-success').style.display = 'inline-block'; 
             document.getElementById('file-list-title').innerHTML = 'Uploaded Files';
+            window.location.reload();
         });
 
         //signup
@@ -546,7 +547,7 @@
             if (!errorContainer) {
                 errorContainer = document.createElement('div');
                 errorContainer.id = 'error-container';
-                document.body.appendChild(errorContainer); // Consider changing this if you want a different positioning strategy
+                document.body.appendChild(errorContainer); 
             }
 
             const errorMessage = document.createElement('div');

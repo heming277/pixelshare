@@ -1,6 +1,6 @@
 # PixelShare
 
-PixelShare is a Rust-based web application I designed for sharing and managing files. It leverages modern web technologies for file management experience.
+PixelShare is a Rust-based web application I designed for sharing and managing files. It leverages modern web technologies and Rust for file management and file sharing.
 
 ## Screenshots
 
@@ -50,8 +50,6 @@ cargo run
 
 The server will start, access the web application at `http://localhost:3030`.
 
-
-
 ## Optional: Running with Docker
 
 ### Building the Docker Image
@@ -76,8 +74,8 @@ docker run -p 3030:3030 pixelshare
 
 ## Future developments
 
--Image Processing: Implement features for image conversion, resizing, and applying filters.
--Main Feature: Collaborative Editing with Group Files 
+- Image Processing: Implement features for image conversion, resizing, and applying filters.
+- Main Feature: Collaborative Editing with Group Files.
 
 ## Contributing
 
